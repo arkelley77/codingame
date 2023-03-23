@@ -3,3 +3,5 @@
 // For more information see https://go.microsoft.com/fwlink/?linkid=865984
 #define LookupGenFn(name)
 #define genLookupTable(gen_fn, size) constexpr auto lut_##gen_fn = makeLookupTable<gen_fn, size>()
+#define assert(expression) ((void)0)
+#define assert(expression) (void)( (!!(expression)) || (_wassert(_CRT_WIDE(#expression), _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) )

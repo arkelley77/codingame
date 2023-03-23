@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <type_traits>
+#include <vector>
 
 #define abs(x) (((x) < 0) ? -(x) : (x))
 
@@ -22,8 +24,8 @@ namespace kel {
 
 // bit-fiddling.hpp
 namespace kel {
-# define pow2(nbits, power) (static_cast<u##nbits##>(1) << (power))
-# define ones(nbits, num) (pow2(nbits, num) - static_cast<u##nbits##>(1))
+# define pow2(power) (1ull << (power))
+# define ones(num) (pow2(num) - 1ull)
 # define bitRange(nbits, start, stop) (ones(nbits, stop) & (~ones(nbits, start)))
 
 # define getLS1B(mask) ((mask) & -(mask))
@@ -65,63 +67,59 @@ constexpr auto lut_##gen_fn = kel::makeLookupTable<gen_##gen_fn, width * height>
 }
 
 
-using namespace kel, std;
+using namespace kel;
+using namespace std;
+
 using bb = u16;
 
 
-struct Coords {
-  int x, y;
-  constexpr inline Coords() : x(), y() {}
-  constexpr inline Coords(int x, int y) : x(x), y(y) {}
+struct Coords { int x, y; };
+# define localXyToIdx(x, y) ((x) + 3 * (y))
+# define localCoordsToIdx(coords) (localXyToIdx((coords).x, (coords).y))
+# define localIdxToX(idx) ((idx) % 3)
+# define localIdxToY(idx) ((idx) / 3)
+# define localIdxToCoords(idx) (Coords{ localIdxToX(idx), localIdxToY(idx) })
+# define localIdxToBB(idx) (1u << (idx))
+# define localXyToBB(x, y) (localIdxToBB(localXyToIdx(x, y)))
+# define localCoordsToBB(coords) (localXyToBB((coords).x, (coords).y))
 
-  bool operator==(const Coords& other) const { return x == other.x && y == other.y; }
-};
+# define globalXyToIdx(x, y) ((x) + 9 * (y))
+# define globalCoordsToIdx(coords) (globalXyToIdx((coords).x, (coords).y))
+# define globalIdxToX(idx) ((idx) % 9)
+# define globalIdxToY(idx) ((idx) / 9)
+# define globalIdxToCoords(idx) (Coords{ globalIdxToX(idx), globalIdxToY(idx) })
 
-struct IdxOnLocal : Coords {
-  constexpr inline IdxOnLocal() : Coords() {}
-  constexpr inline IdxOnLocal(int x, int y) : Coords(x, y) {}
-  constexpr inline IdxOnLocal(int idx) : Coords(idx % 3, idx / 3) {}
-  constexpr inline int toIdx() const { return x + 3 * y; }
-  constexpr inline bb toBoard() const { return 1u << toIdx(); }
-};
-typedef IdxOnLocal LocalIdx;
-
-struct IdxOnGlobal {
-  IdxOnLocal coords;
-  LocalIdx board;
-  constexpr inline IdxOnGlobal() : coords(), board() {}
-  constexpr inline IdxOnGlobal(const IdxOnLocal& coords, const LocalIdx& board) : coords(coords), board(board) {}
-  constexpr inline IdxOnGlobal(int x, int y) : coords(x % 3, y % 3), board(x / 3, y / 3) {}
-  constexpr inline int x() const { return coords.x + 3 * board.x; }
-  constexpr inline int y() const { return coords.y + 3 * board.y; }
-  constexpr inline Coords xy() const { return { x(), y() }; }
-
-  bool operator==(const IdxOnGlobal& other) const { return coords == other.coords && board == other.board; }
-};
-
+# define localXToGlobalX_xy(x, board_x) ((x) + 3 * (board_x))
+# define localYToGlobalY_xy(y, board_y) ((y) + 3 * (board_y))
+# define localXToGlobalX_coords(x, board_coords) (localXToGlobalX_xy(x, (board_coords).x))
+# define localYToGlobalY_coords(y, board_coords) (localYToGlobalY_xy(y, (board_coords).y))
+# define localXToGlobalX_idx(x, board_idx) (localXToGlobalX_xy(x, localIdxToX(board_idx)))
+# define localYToGlobalY_idx(y, board_idx) (localYToGlobalY_xy(y, localIdxToY(board_idx)))
+# define localCoordsToGlobalCoords_xy(coords, board_x, board_y) (Coords{ localXToGlobalX_xy((coords).x, board_x), localYToGlobalY_xy((coords).y, board_y) })
+# define localCoordsToGlobalCoords_coords(coords, board_coords) (localCoordsToGlobalCoords_xy(coords, (board_coords).x, (board_coords).y))
+# define localCoordsToGlobalCoords_idx(coords, board_idx) (localCoordsToGlobalCoords_coords(coords, localIdxToCoords(board_idx)))
 
 enum Square : bb {
-  top_left = IdxOnLocal(0, 0).toBoard(), top_middle = IdxOnLocal(1, 0).toBoard(), top_right = IdxOnLocal(2, 0).toBoard(),
-  middle_left = IdxOnLocal(0, 1).toBoard(), center = IdxOnLocal(1, 1).toBoard(), middle_right = IdxOnLocal(2, 1).toBoard(),
-  bottom_left = IdxOnLocal(0, 2).toBoard(), bottom_middle = IdxOnLocal(1, 2).toBoard(), bottom_right = IdxOnLocal(2, 2).toBoard(),
+  top_left    = localXyToBB(0, 0), top_middle    = localXyToBB(1, 0), top_right    = localXyToBB(2, 0),
+  middle_left = localXyToBB(0, 1), center        = localXyToBB(1, 1), middle_right = localXyToBB(2, 1),
+  bottom_left = localXyToBB(0, 2), bottom_middle = localXyToBB(1, 2), bottom_right = localXyToBB(2, 2),
 };
 enum Row : bb {
-  diag_slash = top_left | center | bottom_right, // /
-  diag_back = top_right | center | bottom_left,  // \
+  diag_slash = top_left  | center | bottom_right, // /
+  diag_back  = top_right | center | bottom_left, // \
 
-  col_left = top_left | middle_left | bottom_left,
-  col_middle = top_middle | center | bottom_middle,
-  col_right = top_right | middle_right | bottom_right,
+  col_left   = top_left   | middle_left  | bottom_left,
+  col_middle = top_middle | center       | bottom_middle,
+  col_right  = top_right  | middle_right | bottom_right,
 
-  row_top = top_left | top_middle | top_right,
-  row_middle = middle_left | center | middle_right,
+  row_top    = top_left    | top_middle    | top_right,
+  row_middle = middle_left | center        | middle_right,
   row_bottom = bottom_left | bottom_middle | bottom_right,
 };
 
 
 enum WinState : char {
-  x_won = 'X', o_won = 'O', draw = '-', ongoing = ' ',
-  invalid_board = '*'
+  x_won = 'X', o_won = 'O', draw = '-', ongoing = ' '
 };
 
 
@@ -145,9 +143,6 @@ static constexpr int bsf(size_t mask) noexcept {
 }
 genLookupTable(bsf, pow2(9));
 
-static constexpr IdxOnLocal findMark(size_t board) noexcept { return { lookup(bsf, board) }; }
-genLookupTable(findMark, pow2(9));
-
 static constexpr bool isWon(size_t board) noexcept {
 # define ALL_SET(mask) ((board & mask) == mask)
   return (
@@ -165,13 +160,10 @@ static constexpr bool isWon(size_t board) noexcept {
 genLookupTable(isWon, pow2(9));
 
 static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
-  if (x_b & o_b || abs(popcnt::eval(x_b) - popcnt::eval(o_b))) return invalid_board;
-  else {
-    if (isWon::eval(x_b)) return x_won;
-    else if (isWon::eval(o_b)) return o_won;
-    else if (popcnt::eval(x_b | o_b) == 9) return draw;
-    else return ongoing;
-  }
+  if (lookup(isWon, x_b & ~o_b)) return x_won;
+  else if (lookup(isWon, o_b & ~x_b)) return o_won;
+  else if (lookup(popcnt, x_b | o_b) == 9) return draw;
+  else return ongoing;
 }
 genLookupTable2d(winState, pow2(9), pow2(9));
 static constexpr bool isOngoing(size_t x_b, size_t o_b) noexcept {
@@ -182,3 +174,54 @@ static constexpr bool isTerminal(size_t x_b, size_t o_b) noexcept {
   return !lookup2d(winState, x_b, o_b);
 }
 genLookupTable2d(isTerminal, pow2(9), pow2(9));
+
+
+struct Board {
+  bb x_board = 0, o_board = 0;
+};
+
+
+class UltimateBoard {
+  array<Board, 9> locals;
+  i8 next;
+  bool x_turn;
+public:
+  constexpr UltimateBoard() noexcept: locals(), next(-1), x_turn(true) {}
+
+  WinState getState() const {
+    Board global;
+    for (int idx = 0; idx < 9; ++idx) {
+      switch (lookup2d(winState, locals[idx].x_board, locals[idx].o_board)) {
+      case x_won: global.x_board |= localIdxToBB(idx); break;
+      case o_won: global.o_board |= localIdxToBB(idx); break;
+      case draw:
+        global.x_board |= localIdxToBB(idx);
+        global.o_board |= localIdxToBB(idx);
+        break;
+      default: break;
+      }
+    }
+    return lookup2d(winState, global.x_board, global.o_board);
+  }
+
+  void getMoves(vector<int>& moves) const {
+    moves.clear();
+    if (next != -1 && !lookup2d(isTerminal, locals[next].x_board, locals[next].o_board)) {
+      bb empty = ~(locals[next].x_board | locals[next].o_board);
+      do {
+        moves.push_back(lookup(bsf, empty));
+      } while (clearLS1B(empty));
+    }
+  }
+  void mark(int idx, int idx_of_local) {
+    if (x_turn) locals[idx_of_local].x_board |= localIdxToBB(idx);
+    else locals[idx_of_local].o_board |= localIdxToBB(idx);
+    next = (lookup2d(isTerminal, locals[idx].x_board, locals[idx].o_board)) ? -1 : idx;
+    x_turn = !x_turn;
+  }
+  UltimateBoard copy() const { return *this; }
+};
+
+int main() {
+  return 0;
+}
