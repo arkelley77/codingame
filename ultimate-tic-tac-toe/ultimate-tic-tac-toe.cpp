@@ -3,6 +3,7 @@
 #include <iostream>
 #include <type_traits>
 #include <vector>
+#include <random>
 
 #define abs(x) (((x) < 0) ? -(x) : (x))
 
@@ -185,6 +186,10 @@ class UltimateBoard {
   array<Board, 9> locals;
   i8 next;
   bool x_turn;
+
+  static u64 z_board[pow2(9)][pow2(9)];
+  static u64 z_next[9];
+  static u64 z_x_turn[2];
 public:
   constexpr UltimateBoard() noexcept: locals(), next(-1), x_turn(true) {}
 
@@ -220,6 +225,29 @@ public:
     x_turn = !x_turn;
   }
   UltimateBoard copy() const { return *this; }
+
+  static void initZTable() {
+    mt19937_64 z_rand;
+    for (size_t x = 0; x < pow2(9); ++x) {
+      for (size_t y = 0; y < pow2(9); ++y) {
+        z_board[x][y] = z_rand();
+      }
+    }
+    for (size_t nxt = 0; nxt < 9; ++nxt) {
+      z_next[nxt] = z_rand();
+    }
+    z_x_turn[0] = z_rand();
+    z_x_turn[1] = z_rand();
+  }
+  u64 hash() const {
+    u64 result = 0;
+    for (const Board& it : locals) {
+      result ^= z_board[it.x_board][it.o_board];
+    }
+    result ^= z_next[next];
+    result ^= z_x_turn;
+    return result;
+  }
 };
 
 int main() {
