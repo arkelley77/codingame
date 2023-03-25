@@ -6,7 +6,10 @@ set( CMAKE_CXX_COMPILER_ID_REQUIRED GNU )
 set( CMAKE_CXX_STANDARD 17 )
 add_compile_options( -lm -lpthread -ldl -lcrypt )
 
-add_subdirectory(puzzles)
+include_directories(include)
+
+add_subdirectory(bot-programming)
 add_subdirectory(code-golf)
 add_subdirectory(optimization)
-add_subdirectory(bot-programming)
+add_subdirectory(puzzles)
+add_subdirectory(tools)

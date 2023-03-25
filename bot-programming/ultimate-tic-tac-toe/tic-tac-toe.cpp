@@ -25,8 +25,7 @@ enum GameState : char
   draw,
 };
 
-class TicTacToeBoard
-{
+class TicTacToeBoard {
 public:
   TicTacToeBoard() : board(), moves(), x_to_play(true) { board.fill(blank); }
 
@@ -35,13 +34,13 @@ public:
     int x, y;
   };
 
-  GridSquare &at(int x, int y)
+  GridSquare& at(int x, int y)
   {
-    return board[3 * y + x];
+    return board[3ull * y + x];
   }
   GridSquare at(int x, int y) const
   {
-    return board[3 * y + x];
+    return board[3ull * y + x];
   }
 
   void clear()
@@ -73,7 +72,7 @@ public:
     {
       // cerr << '.';
       if (board[i] == blank)
-        ret.push_back({i % 3, i / 3});
+        ret.push_back({ i % 3, i / 3 });
     }
     // cerr << endl;
     return ret;
@@ -118,9 +117,9 @@ public:
     return (moves.size() == 9) ? draw : ongoing;
   }
 
-  bool pushMove(const Move &move)
+  bool pushMove(const Move& move)
   {
-    GridSquare &sq = at(move.x, move.y);
+    GridSquare& sq = at(move.x, move.y);
     if (sq != blank)
       return false;
     moves.push(move);
@@ -136,7 +135,7 @@ public:
     x_to_play = !x_to_play;
   }
 
-  friend ostream &operator<<(ostream &os, TicTacToeBoard &board)
+  friend ostream& operator<<(ostream& os, TicTacToeBoard& board)
   {
     os << "\n+---+---+---+\n";
     for (int y = 0; y < 3; ++y)
@@ -157,12 +156,12 @@ private:
   bool x_to_play;
 };
 
-int negamax(TicTacToeBoard &board, int depth = 0)
+int negamax(TicTacToeBoard& board, int depth = 0)
 {
   // cerr << "depth " << depth << endl;
   if (depth == 8)
     cerr << board << endl
-         << endl;
+    << endl;
   GameState state = board.gameState();
   switch (state)
   {
@@ -176,7 +175,7 @@ int negamax(TicTacToeBoard &board, int depth = 0)
   }
   TicTacToeBoard::Move best;
   int best_score = -2;
-  for (const auto &move : board.getMoves())
+  for (const auto& move : board.getMoves())
   {
     board.pushMove(move);
     int score = -negamax(board, depth + 1);
@@ -190,13 +189,13 @@ int negamax(TicTacToeBoard &board, int depth = 0)
   return best_score;
 }
 
-TicTacToeBoard::Move bestMove(TicTacToeBoard &board)
+TicTacToeBoard::Move bestMove(TicTacToeBoard& board)
 {
   if (board.getMoves().size() == 9)
-    return {1, 1};
+    return { 1, 1 };
   TicTacToeBoard::Move best;
   int best_score = -2;
-  for (const auto &move : board.getMoves())
+  for (const auto& move : board.getMoves())
   {
     board.pushMove(move);
     int score = -negamax(board);
@@ -228,12 +227,12 @@ enum MenuOption
 MenuOption menu()
 {
   cout << "\n-- Tic Tac Toe --\n\n"
-       << "Menu options:\n"
-       << "  1: play as X (also 'x' or 'X')\n"
-       << "  2: play as O (also 'o' or 'O')\n"
-       << "  3: quit      (also 'q' or 'Q')\n"
-       << "What would you like to do?\n"
-       << ">> " << flush;
+    << "Menu options:\n"
+    << "  1: play as X (also 'x' or 'X')\n"
+    << "  2: play as O (also 'o' or 'O')\n"
+    << "  3: quit      (also 'q' or 'Q')\n"
+    << "What would you like to do?\n"
+    << ">> " << flush;
   while (true)
   {
     char selection;
@@ -292,7 +291,7 @@ TicTacToeBoard::Move getUserMove()
     if (!cin.good())
     {
       if (cin.eof())
-        return {-1, -1};
+        return { -1, -1 };
       cout << "Invalid input, please try again.\n>> " << flush;
       cin.ignore(-1, '\n');
       cin.clear();
@@ -301,7 +300,7 @@ TicTacToeBoard::Move getUserMove()
     if (0 <= column && column < 3)
       break;
   }
-  return {row, column};
+  return { row, column };
 }
 
 int main()
@@ -384,7 +383,7 @@ int main()
     cerr << opponent_row << ' ' << opponent_col;
     if (opponent_row != -1 && opponent_col != -1)
     {
-      board.pushMove({opponent_col, opponent_row});
+      board.pushMove({ opponent_col, opponent_row });
     }
     cerr << board << endl;
     int valid_action_count;
