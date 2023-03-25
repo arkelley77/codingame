@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <climits>
 #include <iostream>
+#include <limits>
 #include <stack>
 #include <string>
 #include <vector>
@@ -277,7 +277,7 @@ TicTacToeBoard::Move getUserMove()
       if (cin.eof())
         quit();
       cout << "Invalid input, please try again.\n>> " << flush;
-      cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+      cin.ignore(-1, '\n');
       cin.clear();
       continue;
     }
@@ -294,7 +294,7 @@ TicTacToeBoard::Move getUserMove()
       if (cin.eof())
         return {-1, -1};
       cout << "Invalid input, please try again.\n>> " << flush;
-      cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+      cin.ignore(-1, '\n');
       cin.clear();
       continue;
     }
