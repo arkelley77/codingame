@@ -1,7 +1,63 @@
 // Hint files help the Visual Studio IDE interpret Visual C++ identifiers
 // such as names of functions and macros.
 // For more information see https://go.microsoft.com/fwlink/?linkid=865984
-#define LookupGenFn(name)
-#define genLookupTable(gen_fn, size) constexpr auto lut_##gen_fn = makeLookupTable<gen_fn, size>()
-#define assert(expression) ((void)0)
-#define assert(expression) (void)( (!!(expression)) || (_wassert(_CRT_WIDE(#expression), _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) )
+
+// include
+// | bit-fiddling.hpp
+#define pow2(power) (1ull << (power))
+#define ones(num) (pow2(num) - 1ull)
+#define bitRange(nbits, start, stop) (ones(nbits, stop) & (~ones(nbits, start)))
+#define getLS1B(mask) ((mask) & -(mask))
+#define clearLS1B(mask) (mask &= (mask - static_cast<decltype(mask)>(1)))
+
+// | lookup-tables.hpp
+#define rtype(fn) decltype(fn::eval(std::declval<size_t>()))
+#define rtype2d(fn) decltype(fn::eval(std::declval<size_t>(), std::declval<size_t>()))
+#define genLookupTable(gen_fn, size)                                           \
+  struct gen_##gen_fn                                                          \
+  {                                                                            \
+    static constexpr auto eval(size_t input) noexcept                          \
+    {                                                                          \
+      return gen_fn(input);                                                    \
+    }                                                                          \
+  };                                                                           \
+  constexpr auto lut_##gen_fn = kel::makeLookupTable<gen_##gen_fn, size>()
+#define lookup(gen_fn, index) (lut_##gen_fn[index])
+#define genLookupTable2d(gen_fn, width, height)                                \
+  struct gen_##gen_fn                                                          \
+  {                                                                            \
+    static constexpr size_t w = width;                                         \
+    static constexpr auto eval(size_t input) noexcept                          \
+    {                                                                          \
+      return gen_fn(input % w, input / w);                                     \
+    }                                                                          \
+  };                                                                           \
+  constexpr auto lut_##gen_fn =                                                \
+    kel::makeLookupTable<gen_##gen_fn, width * height>()
+#define lookup2d(gen_fn, x, y) (lut_##gen_fn[x + gen_##gen_fn::w * y])
+
+// ultimate-tic-tac-toe.cpp
+#define abs(x) (((x) < 0) ? -(x) : (x))
+#define localXyToIdx(x, y) ((x) + 3 * (y))
+#define localCoordsToIdx(coords) (localXyToIdx((coords).x, (coords).y))
+#define localIdxToX(idx) ((idx) % 3)
+#define localIdxToY(idx) ((idx) / 3)
+#define localIdxToCoords(idx) (Coords{localIdxToX(idx), localIdxToY(idx)})
+#define localIdxToBB(idx) (1u << (idx))
+#define localXyToBB(x, y) (localIdxToBB(localXyToIdx(x, y)))
+#define localCoordsToBB(coords) (localXyToBB((coords).x, (coords).y))
+#define globalXyToIdx(x, y) ((x) + 9 * (y))
+#define globalCoordsToIdx(coords) (globalXyToIdx((coords).x, (coords).y))
+#define globalIdxToX(idx) ((idx) % 9)
+#define globalIdxToY(idx) ((idx) / 9)
+#define globalIdxToCoords(idx) (Coords{globalIdxToX(idx), globalIdxToY(idx)})
+#define localXToGlobalX_xy(x, board_x) ((x) + 3 * (board_x))
+#define localYToGlobalY_xy(y, board_y) ((y) + 3 * (board_y))
+#define localXToGlobalX_coords(x, board_coords) (localXToGlobalX_xy(x, (board_coords).x))
+#define localYToGlobalY_coords(y, board_coords) (localYToGlobalY_xy(y, (board_coords).y))
+#define localXToGlobalX_idx(x, board_idx) (localXToGlobalX_xy(x, localIdxToX(board_idx)))
+#define localYToGlobalY_idx(y, board_idx) (localYToGlobalY_xy(y, localIdxToY(board_idx)))
+#define localCoordsToGlobalCoords_xy(coords, board_x, board_y) (Coords{localXToGlobalX_xy((coords).x, board_x), localYToGlobalY_xy((coords).y, board_y)})
+#define localCoordsToGlobalCoords_coords(coords, board_coords) (localCoordsToGlobalCoords_xy(coords, (board_coords).x, (board_coords).y))
+#define localCoordsToGlobalCoords_idx(coords, board_idx) (localCoordsToGlobalCoords_coords(coords, localIdxToCoords(board_idx)))
+#define ALL_SET(mask) ((board & mask) == mask)
