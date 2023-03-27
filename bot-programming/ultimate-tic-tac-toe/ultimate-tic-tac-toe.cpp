@@ -85,7 +85,7 @@ using namespace kel;
 using namespace std;
 
 using chrono::high_resolution_clock, chrono::milliseconds, chrono::steady_clock;
-using time_point = chrono::time_point<steady_clock, milliseconds>;
+using time_point = chrono::time_point<steady_clock>;
 
 using bb = u16;
 
@@ -120,9 +120,9 @@ struct Coords {
 #define localCoordsToGlobalCoords_coords(coords, board_coords) (localCoordsToGlobalCoords_xy(coords, (board_coords).x, (board_coords).y))
 #define localCoordsToGlobalCoords_idx(coords, board_idx) (localCoordsToGlobalCoords_coords(coords, localIdxToCoords(board_idx)))
 #define localIdxToGlobalIdx_idx(local_idx, idx_of_local) (globalCoordsToIdx(localCoordsToGlobalCoords_idx(localIdxToCoords(local_idx), idx_of_local)))
-#define globalIdxToLocalIdx_idx(global_idx) (localXyToIdx(globalIdxToX(idx) % 3, globalIdxToY(idx) % 3)), (localXyToIdx(globalIdxToX(idx) / 3, globalIdxToY(idx) / 3))
+#define globalIdxToLocalIdx_idx(idx) (localXyToIdx(globalIdxToX(idx) % 3, globalIdxToY(idx) % 3)), (localXyToIdx(globalIdxToX(idx) / 3, globalIdxToY(idx) / 3))
 
-#define tof(x) static_cast<float>(x)
+#define tof(__x) static_cast<float>(__x)
 
 enum Square : bb {
   top_left = localXyToBB(0, 0),
@@ -163,7 +163,7 @@ static constexpr int popcnt(size_t mask) noexcept {
   }
   return count;
 }
-//genLookupTable(popcnt, pow2(9));
+genLookupTable(popcnt, pow2(9));
 static constexpr int bsf(size_t mask) noexcept {
   if (!mask) return -1;
   int count = 0;
@@ -173,7 +173,7 @@ static constexpr int bsf(size_t mask) noexcept {
   }
   return count;
 }
-//genLookupTable(bsf, pow2(9));
+genLookupTable(bsf, pow2(9));
 
 static constexpr bool isWon(size_t board) noexcept {
 #define ALL_SET(mask) ((board & mask) == mask)
@@ -188,7 +188,7 @@ static constexpr bool isWon(size_t board) noexcept {
     || ALL_SET(row_bottom));
 #undef ALL_SET
 }
-//genLookupTable(isWon, pow2(9));
+genLookupTable(isWon, pow2(9));
 
 static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
   if (lookup(isWon, x_b & ~o_b)) return x_won;
@@ -196,15 +196,15 @@ static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
   else if (lookup(popcnt, x_b | o_b) == 9) return draw;
   else return ongoing;
 }
-//genLookupTable2d(winState, pow2(9), pow2(9));
+genLookupTable2d(winState, pow2(9), pow2(9));
 static constexpr bool isOngoing(size_t x_b, size_t o_b) noexcept {
   return lookup2d(winState, x_b, o_b) == ongoing;
 }
-//genLookupTable2d(isOngoing, pow2(9), pow2(9));
+genLookupTable2d(isOngoing, pow2(9), pow2(9));
 static constexpr bool isTerminal(size_t x_b, size_t o_b) noexcept {
-  return !lookup2d(winState, x_b, o_b);
+  return !lookup2d(isOngoing, x_b, o_b);
 }
-//genLookupTable2d(isTerminal, pow2(9), pow2(9));
+genLookupTable2d(isTerminal, pow2(9), pow2(9));
 
 using MoveVector = vector<int>;
 
@@ -245,6 +245,7 @@ public:
     if (next != -1
       && !lookup2d(isTerminal, locals[next].x_board, locals[next].o_board)) {
       bb empty = ~(locals[next].x_board | locals[next].o_board);
+      empty &= ones(9);
       do {
         moves.push_back(lookup(bsf, empty));
       } while (clearLS1B(empty));
@@ -254,7 +255,8 @@ public:
       bb open_locals = ~(global.x_board | global.o_board) & ones(9);
       if (open_locals) do {
         int local_idx = lookup(bsf, open_locals);
-        bb empty = ~(locals[next].x_board | locals[next].o_board) & ones(9);
+        bb empty = ~(locals[local_idx].x_board | locals[local_idx].o_board);
+        empty &= ones(9);
         do {
           moves.push_back(localIdxToGlobalIdx_idx(lookup(bsf, empty), local_idx));
         } while (clearLS1B(empty));
@@ -543,14 +545,14 @@ private:
 class MonteCarlo {
   struct Node {
     struct Child {
-      Node& child;
-      Node& parent;
+      Node* child;
+      Node* parent;
       int move;
       int visits;
-      Child(Node& child, Node& parent) : child(child), parent(parent), visits(0) {}
+      Child(Node* child, Node* parent, int move) : child(child), parent(parent), move(move), visits(0) {}
       float ucb1() const {
-        constexpr inline static float bias = 1.41421356237f;//sqrt(2);
-        return (tof(child.wins) / child.sims) + bias * sqrt(tof(parent.sims) / visits);
+        constexpr static float bias = 1.41421356237f;//sqrt(2);
+        return (tof(child->wins) / child->sims) + bias * sqrt(tof(parent->sims) / visits);
       }
     };
     UltimateBoard board;
@@ -576,8 +578,8 @@ public:
       // the position is in the tree; find it
       Node* new_root = nullptr;
       for (auto& child : root->children) {
-        if (child.child.board == state) {
-          new_root = &child.child;
+        if (child.child->board == state) {
+          new_root = child.child;
         }
         else erase(child.child);
       }
@@ -596,19 +598,21 @@ public:
     size_t loop_count = 0;
     MoveVector moves;       // this vector gets passed down the stack to avoid constructor/destructor thrashing
     moves.reserve(81);
-    stack<Node&> visited;
+    stack<Node*> visited;
     while (steady_clock::now() < timeout) {
-      Node& node = *root;
+      Node* node = root;
 
       // selection phase
-      while (node.children.size() == node.board.getNumMoves() && node.children.size() != 0) {
+      while (node->children.size() == node->board.getNumMoves() && node->children.size() != 0) {
         visited.push(node);
         node = selectNext(node);
       }
 
       // expansion phase
-      if (node.board.getState() == ongoing) {
+      Board b = node->board.getGlobal();
+      if (lookup2d(winState, b.x_board, b.o_board) == ongoing) {
         node = expand(node, visited, moves);
+        moves.clear();
       }
 
       // rollout phase
@@ -616,8 +620,10 @@ public:
 
       // backprop phase
       backprop(node, outcome, visited);
-      visited.clear();
+
+      ++loop_count;
     }
+    return loop_count;
   }
 
 private:
@@ -630,60 +636,81 @@ private:
     return it->second;
   }
 
-  void erase(Node& node) {
+  void erase(Node* node) {
     // traverse the tree and remove nodes rooted at node
-    for (auto& child : node.children) {
-      if (child.child.parent_count == 1) erase(child.child);
-      else --child.child.parent_count;
+    for (auto& child : node->children) {
+      if (child.child->parent_count == 1) erase(child.child);
+      else --child.child->parent_count;
     }
-    position_table.erase(node.board);
+    position_table.erase(node->board);
   }
 
-  static Node& selectNext(Node& node) {
-    auto it = node.children.begin();
+  static Node* selectNext(Node* node) {
+    auto it = node->children.begin();
     auto best = it;
     float best_score = best->ucb1();
-    for (; it != node.children.end(); ++it) {
+    for (; it != node->children.end(); ++it) {
       float score = it->ucb1();
       if (score > best_score) {
         best = it;
         best_score = score;
       }
     }
+    ++best->visits;
     return best->child;
   }
 
-  Node& expand(Node& node, stack<Node&> visited, MoveVector& moves) {
-    node.board.getMoves(moves);
-    size_t move_idx = 1 + (rng() % (moves.size() - node.children.size()));
+  Node* expand(Node* node, stack<Node*>& visited, MoveVector& moves) {
+    node->board.getMoves(moves);
+    size_t move_idx = 1 + (rng() % (moves.size() - node->children.size()));
     int next_move;
     for (int& move : moves) {
-      if (find(node.children.begin(), node.children.end(), move) == node.children.end()) {
+      bool already_tried = false;
+      for (auto& it : node->children) {
+        if (it.move == move) already_tried = true;
+      }
+      if (!already_tried) {
         --move_idx;
         if (move_idx == 0) next_move = move;
       }
     }
-    Node& next_node = emplace(node.board.copy().mark(globalIdxToLocalIdx_idx(next_move)));
-    node.children.push_back({ next_node, node });
+    Node* next_node = &emplace(node->board.copy().mark(globalIdxToLocalIdx_idx(next_move)));
+    node->children.push_back({ next_node, node, next_move });
     moves.clear();
     return next_node;
   }
 
-  WinState rollout(const Node& node, MoveVector& moves) {
-    UltimateBoard board = node.board;
+  WinState rollout(const Node* node, MoveVector& moves) {
+    UltimateBoard board = node->board;
     Board glob = board.getGlobal();
     while (!lookup2d(isTerminal, glob.x_board, glob.o_board)) {
       board.getMoves(moves);
       int next_move = moves[rng() % moves.size()];
       board.mark(globalIdxToLocalIdx_idx(next_move));
       glob = board.getGlobal();
+      moves.clear();
     }
     return lookup2d(winState, glob.x_board, glob.o_board);
+  }
+
+  static void backprop(Node* node, WinState outcome, stack<Node*> visited) {
+    bool winner_node = false;
+    bool winning_outcome = outcome == x_won || outcome == o_won;
+    do {
+      ++node->sims;
+      if (winner_node && winning_outcome) ++node->wins;
+      winner_node = !winner_node;
+      if (visited.empty()) break;
+      node = visited.top();
+      visited.pop();
+    } while (true);
   }
 };
 
 int main() {
+  time_point start = steady_clock::now();
   UltimateBoard board;
   MonteCarlo mcts(board);
+  auto z = mcts.runSearch(start + milliseconds(750));
   return 0;
 }
