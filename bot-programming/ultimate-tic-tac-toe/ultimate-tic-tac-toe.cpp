@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <map>
@@ -8,6 +9,7 @@
 #include <vector>
 #include <random>
 #include <set>
+#include <stack>
 
 // typedefs.hpp
 namespace kel {
@@ -32,7 +34,7 @@ namespace kel {
 #define bitRange(nbits, start, stop) (ones(nbits, stop) & (~ones(nbits, start)))
 
 #define getLS1B(mask) ((mask) & -(mask))
-#define clearLS1B(mask) (mask &= (mask - static_cast<decltype(mask)>(1)))
+#define clearLS1B(mask) (mask &= (mask - 1))
 }
 
 // lookup-tables.hpp
@@ -82,6 +84,9 @@ namespace kel {
 using namespace kel;
 using namespace std;
 
+using chrono::high_resolution_clock, chrono::milliseconds, chrono::steady_clock;
+using time_point = chrono::time_point<steady_clock, milliseconds>;
+
 using bb = u16;
 
 struct Coords {
@@ -114,6 +119,10 @@ struct Coords {
 #define localCoordsToGlobalCoords_xy(coords, board_x, board_y) (Coords{localXToGlobalX_xy((coords).x, board_x), localYToGlobalY_xy((coords).y, board_y)})
 #define localCoordsToGlobalCoords_coords(coords, board_coords) (localCoordsToGlobalCoords_xy(coords, (board_coords).x, (board_coords).y))
 #define localCoordsToGlobalCoords_idx(coords, board_idx) (localCoordsToGlobalCoords_coords(coords, localIdxToCoords(board_idx)))
+#define localIdxToGlobalIdx_idx(local_idx, idx_of_local) (globalCoordsToIdx(localCoordsToGlobalCoords_idx(localIdxToCoords(local_idx), idx_of_local)))
+#define globalIdxToLocalIdx_idx(global_idx) (localXyToIdx(globalIdxToX(idx) % 3, globalIdxToY(idx) % 3)), (localXyToIdx(globalIdxToX(idx) / 3, globalIdxToY(idx) / 3))
+
+#define tof(x) static_cast<float>(x)
 
 enum Square : bb {
   top_left = localXyToBB(0, 0),
@@ -154,7 +163,7 @@ static constexpr int popcnt(size_t mask) noexcept {
   }
   return count;
 }
-genLookupTable(popcnt, pow2(9));
+//genLookupTable(popcnt, pow2(9));
 static constexpr int bsf(size_t mask) noexcept {
   if (!mask) return -1;
   int count = 0;
@@ -164,7 +173,7 @@ static constexpr int bsf(size_t mask) noexcept {
   }
   return count;
 }
-genLookupTable(bsf, pow2(9));
+//genLookupTable(bsf, pow2(9));
 
 static constexpr bool isWon(size_t board) noexcept {
 #define ALL_SET(mask) ((board & mask) == mask)
@@ -179,7 +188,7 @@ static constexpr bool isWon(size_t board) noexcept {
     || ALL_SET(row_bottom));
 #undef ALL_SET
 }
-genLookupTable(isWon, pow2(9));
+//genLookupTable(isWon, pow2(9));
 
 static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
   if (lookup(isWon, x_b & ~o_b)) return x_won;
@@ -187,15 +196,17 @@ static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
   else if (lookup(popcnt, x_b | o_b) == 9) return draw;
   else return ongoing;
 }
-genLookupTable2d(winState, pow2(9), pow2(9));
+//genLookupTable2d(winState, pow2(9), pow2(9));
 static constexpr bool isOngoing(size_t x_b, size_t o_b) noexcept {
   return lookup2d(winState, x_b, o_b) == ongoing;
 }
-genLookupTable2d(isOngoing, pow2(9), pow2(9));
+//genLookupTable2d(isOngoing, pow2(9), pow2(9));
 static constexpr bool isTerminal(size_t x_b, size_t o_b) noexcept {
   return !lookup2d(winState, x_b, o_b);
 }
-genLookupTable2d(isTerminal, pow2(9), pow2(9));
+//genLookupTable2d(isTerminal, pow2(9), pow2(9));
+
+using MoveVector = vector<int>;
 
 struct Board {
   bb x_board = 0, o_board = 0;
@@ -209,7 +220,7 @@ class UltimateBoard {
 public:
   constexpr UltimateBoard() noexcept: locals(), next(-1), x_turn(true) {}
 
-  WinState getState() const {
+  Board getGlobal() const {
     Board global;
     for (int idx = 0; idx < 9; ++idx) {
       switch (lookup2d(winState, locals[idx].x_board, locals[idx].o_board)) {
@@ -226,10 +237,10 @@ public:
       default: break;
       }
     }
-    return lookup2d(winState, global.x_board, global.o_board);
+    return global;
   }
 
-  void getMoves(vector<int> &moves) const {
+  void getMoves(MoveVector& moves) const {
     moves.clear();
     if (next != -1
       && !lookup2d(isTerminal, locals[next].x_board, locals[next].o_board)) {
@@ -238,14 +249,43 @@ public:
         moves.push_back(lookup(bsf, empty));
       } while (clearLS1B(empty));
     }
+    else {
+      Board global = getGlobal();
+      bb open_locals = ~(global.x_board | global.o_board) & ones(9);
+      if (open_locals) do {
+        int local_idx = lookup(bsf, open_locals);
+        bb empty = ~(locals[next].x_board | locals[next].o_board) & ones(9);
+        do {
+          moves.push_back(localIdxToGlobalIdx_idx(lookup(bsf, empty), local_idx));
+        } while (clearLS1B(empty));
+      } while (clearLS1B(open_locals));
+    }
   }
-  void mark(int idx, int idx_of_local) {
+  int getNumMoves() const {
+    if (next != -1
+      && !lookup2d(isTerminal, locals[next].x_board, locals[next].o_board)) {
+      return lookup(popcnt, ~(locals[next].x_board | locals[next].o_board) & ones(9));
+    }
+    else {
+      Board global = getGlobal();
+      bb open_locals = ~(global.x_board | global.o_board) & ones(9);
+      int num_moves = 0;
+      if (open_locals) do {
+        int local_idx = lookup(bsf, open_locals);
+        bb empty = ~(locals[next].x_board | locals[next].o_board) & ones(9);
+        num_moves += lookup(popcnt, empty);
+      } while (clearLS1B(open_locals));
+      return num_moves;
+    }
+  }
+  UltimateBoard& mark(int idx, int idx_of_local) {
     if (x_turn) locals[idx_of_local].x_board |= localIdxToBB(idx);
     else locals[idx_of_local].o_board |= localIdxToBB(idx);
     next = (lookup2d(isTerminal, locals[idx].x_board, locals[idx].o_board))
       ? -1
       : idx;
     x_turn = !x_turn;
+    return *this;
   }
   UltimateBoard copy() const { return *this; }
 
@@ -503,12 +543,13 @@ private:
 class MonteCarlo {
   struct Node {
     struct Child {
-      Node& child, parent;
+      Node& child;
+      Node& parent;
+      int move;
       int visits;
       Child(Node& child, Node& parent) : child(child), parent(parent), visits(0) {}
       float ucb1() const {
-        constexpr inline static float bias = sqrt(2);
-        using tof = static_cast<float>;
+        constexpr inline static float bias = 1.41421356237f;//sqrt(2);
         return (tof(child.wins) / child.sims) + bias * sqrt(tof(parent.sims) / visits);
       }
     };
@@ -520,11 +561,69 @@ class MonteCarlo {
     Node(const UltimateBoard& board) : board(board), children(), parent_count(1) {}
   };
 public:
-  MonteCarlo(const UltimateBoard& state) : position_table(103), root(&emplace(state)) {}
+  MonteCarlo(const UltimateBoard& state) : position_table(103), root(&emplace(state)), rng() {
+    rng.seed(chrono::high_resolution_clock::now().time_since_epoch().count());
+  }
+
+  void updateState(const UltimateBoard& state) {
+    auto it = position_table.find(state);
+    if (it == position_table.end()) {
+      // clear the tree & make a new root
+      position_table.clear();
+      root = &emplace(state);
+    }
+    else {
+      // the position is in the tree; find it
+      Node* new_root = nullptr;
+      for (auto& child : root->children) {
+        if (child.child.board == state) {
+          new_root = &child.child;
+        }
+        else erase(child.child);
+      }
+      if (new_root == nullptr) {
+        position_table.clear();
+        root = &emplace(state);
+      }
+      else {
+        position_table.erase(root->board);
+        root = new_root;
+      }
+    }
+  }
+
+  size_t runSearch(time_point timeout) {
+    size_t loop_count = 0;
+    MoveVector moves;       // this vector gets passed down the stack to avoid constructor/destructor thrashing
+    moves.reserve(81);
+    stack<Node&> visited;
+    while (steady_clock::now() < timeout) {
+      Node& node = *root;
+
+      // selection phase
+      while (node.children.size() == node.board.getNumMoves() && node.children.size() != 0) {
+        visited.push(node);
+        node = selectNext(node);
+      }
+
+      // expansion phase
+      if (node.board.getState() == ongoing) {
+        node = expand(node, visited, moves);
+      }
+
+      // rollout phase
+      WinState outcome = rollout(node, moves);
+
+      // backprop phase
+      backprop(node, outcome, visited);
+      visited.clear();
+    }
+  }
 
 private:
   unordered_map<UltimateBoard, Node, UltimateBoard::hash> position_table;
   Node* root;
+  mt19937_64 rng;
 
   inline Node& emplace(const UltimateBoard& state) {
     auto [it, worked] = position_table.emplace(state, Node(state));
@@ -534,10 +633,52 @@ private:
   void erase(Node& node) {
     // traverse the tree and remove nodes rooted at node
     for (auto& child : node.children) {
-      if (child.parent_count == 1) remove(child.child);
-      else --child.parent_count;
+      if (child.child.parent_count == 1) erase(child.child);
+      else --child.child.parent_count;
     }
     position_table.erase(node.board);
+  }
+
+  static Node& selectNext(Node& node) {
+    auto it = node.children.begin();
+    auto best = it;
+    float best_score = best->ucb1();
+    for (; it != node.children.end(); ++it) {
+      float score = it->ucb1();
+      if (score > best_score) {
+        best = it;
+        best_score = score;
+      }
+    }
+    return best->child;
+  }
+
+  Node& expand(Node& node, stack<Node&> visited, MoveVector& moves) {
+    node.board.getMoves(moves);
+    size_t move_idx = 1 + (rng() % (moves.size() - node.children.size()));
+    int next_move;
+    for (int& move : moves) {
+      if (find(node.children.begin(), node.children.end(), move) == node.children.end()) {
+        --move_idx;
+        if (move_idx == 0) next_move = move;
+      }
+    }
+    Node& next_node = emplace(node.board.copy().mark(globalIdxToLocalIdx_idx(next_move)));
+    node.children.push_back({ next_node, node });
+    moves.clear();
+    return next_node;
+  }
+
+  WinState rollout(const Node& node, MoveVector& moves) {
+    UltimateBoard board = node.board;
+    Board glob = board.getGlobal();
+    while (!lookup2d(isTerminal, glob.x_board, glob.o_board)) {
+      board.getMoves(moves);
+      int next_move = moves[rng() % moves.size()];
+      board.mark(globalIdxToLocalIdx_idx(next_move));
+      glob = board.getGlobal();
+    }
+    return lookup2d(winState, glob.x_board, glob.o_board);
   }
 };
 
