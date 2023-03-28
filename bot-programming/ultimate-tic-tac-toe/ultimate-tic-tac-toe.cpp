@@ -11,6 +11,11 @@
 #include <set>
 #include <stack>
 
+#define USE_LOOKUP 1
+#define USE_2D_LOOKUP 0
+
+#define NUM_ROLLOUTS 2
+
 // typedefs.hpp
 namespace kel {
   typedef uint8_t u8;
@@ -53,6 +58,9 @@ namespace kel {
     return _makeLookupTable<GenFn, N>(std::make_index_sequence<N>{});
   }
 
+
+#if USE_LOOKUP
+#define for_lookup static constexpr
 #define genLookupTable(gen_fn, size)                                           \
   struct gen_##gen_fn                                                          \
   {                                                                            \
@@ -63,7 +71,14 @@ namespace kel {
   };                                                                           \
   constexpr auto lut_##gen_fn = kel::makeLookupTable<gen_##gen_fn, size>()
 #define lookup(gen_fn, index) (lut_##gen_fn[index])
+#else
+#define for_lookup inline
+#define genLookupTable(gen_fn, size)
+#define lookup(gen_fn, index) (gen_fn(index)))
+#endif
 
+#if USE_2D_LOOKUP
+#define for_lookup2d static constexpr
 #define genLookupTable2d(gen_fn, width, height)                                \
   struct gen_##gen_fn                                                          \
   {                                                                            \
@@ -76,6 +91,11 @@ namespace kel {
   constexpr auto lut_##gen_fn =                                                \
     kel::makeLookupTable<gen_##gen_fn, width * height>()
 #define lookup2d(gen_fn, x, y) (lut_##gen_fn[x + gen_##gen_fn::w * y])
+#else
+#define for_lookup2d inline
+#define genLookupTable2d(gen_fn, width, height) void _____null()
+#define lookup2d(gen_fn, x, y) (gen_fn(x, y))
+#endif
 
 #undef rtype
 #undef rtype2d
@@ -152,30 +172,43 @@ enum WinState : char {
   x_won = 'X',
   o_won = 'O',
   draw = '-',
-  ongoing = ' '
+  ongoing = ' ',
+  invalid = '*'
 };
 
-static constexpr int popcnt(size_t mask) noexcept {
+enum EasyWin : char {
+  easy_x = 'X', easy_o = 'O', not_easy = ' '
+};
+
+for_lookup int popcnt(size_t mask) noexcept {
+#if USE_LOOKUP
   int count = 0;
   while (mask)   {
     ++count;
     mask &= mask - 1; // reset the LS1B
   }
   return count;
+#else
+  return __builtin_popcntll(mask);
+#endif
 }
 genLookupTable(popcnt, pow2(9));
-static constexpr int bsf(size_t mask) noexcept {
+for_lookup int bsf(size_t mask) noexcept {
   if (!mask) return -1;
+#if USE_LOOKUP
   int count = 0;
   while ((mask & 1) == 0) { // check if LSB is set
     ++count;
     mask /= 2; // right shift
   }
   return count;
+#else
+  return __builtin_ctzll(mask);
+#endif
 }
 genLookupTable(bsf, pow2(9));
 
-static constexpr bool isWon(size_t board) noexcept {
+for_lookup bool isWon(size_t board) noexcept {
 #define ALL_SET(mask) ((board & mask) == mask)
   return (
        ALL_SET(diag_slash)
@@ -190,19 +223,48 @@ static constexpr bool isWon(size_t board) noexcept {
 }
 genLookupTable(isWon, pow2(9));
 
-static constexpr WinState winState(size_t x_b, size_t o_b) noexcept {
-  if (lookup(isWon, x_b & ~o_b)) return x_won;
-  else if (lookup(isWon, o_b & ~x_b)) return o_won;
-  else if (lookup(popcnt, x_b | o_b) == 9) return draw;
+for_lookup2d EasyWin easyWin(size_t x_b, size_t o_b) noexcept {
+#define ALMOST_X(mask) (popcnt(x_b & mask & ~o_b) == 1)
+#define ALMOST_O(mask) (popcnt(x_b & mask & ~o_b) == 1)
+  return (
+       ALMOST_X(diag_slash)
+    || ALMOST_X(diag_back)
+    || ALMOST_X(col_left)
+    || ALMOST_X(col_middle)
+    || ALMOST_X(col_right)
+    || ALMOST_X(row_top)
+    || ALMOST_X(row_middle)
+    || ALMOST_X(row_bottom)
+       ) ? easy_x : ((
+       ALMOST_O(diag_slash)
+    || ALMOST_O(diag_back)
+    || ALMOST_O(col_left)
+    || ALMOST_O(col_middle)
+    || ALMOST_O(col_right)
+    || ALMOST_O(row_top)
+    || ALMOST_O(row_middle)
+    || ALMOST_O(row_bottom)
+       ) ? easy_o : not_easy);
+#undef ALMOST_X
+#undef ALMOST_O
+}
+genLookupTable2d(easyWin, pow2(9), pow2(9));
+for_lookup2d WinState winState(size_t x_b, size_t o_b) noexcept {
+  if (x_b & o_b) return invalid;
+  else if (lookup(isWon, x_b)) return x_won;
+  else if (lookup(isWon, o_b)) return o_won;
+  else if (lookup(popcnt, (x_b | o_b) & ones(9)) == 9) return draw;
   else return ongoing;
 }
 genLookupTable2d(winState, pow2(9), pow2(9));
-static constexpr bool isOngoing(size_t x_b, size_t o_b) noexcept {
-  return lookup2d(winState, x_b, o_b) == ongoing;
+for_lookup2d bool isOngoing(size_t x_b, size_t o_b) noexcept {
+  WinState w = lookup2d(winState, x_b, o_b);
+  return w == ongoing && w != invalid;
 }
 genLookupTable2d(isOngoing, pow2(9), pow2(9));
-static constexpr bool isTerminal(size_t x_b, size_t o_b) noexcept {
-  return !lookup2d(isOngoing, x_b, o_b);
+for_lookup2d bool isTerminal(size_t x_b, size_t o_b) noexcept {
+  WinState w = lookup2d(winState, x_b, o_b);
+  return w != ongoing;
 }
 genLookupTable2d(isTerminal, pow2(9), pow2(9));
 
@@ -231,8 +293,6 @@ public:
         global.o_board |= localIdxToBB(idx);
         break;
       case draw:
-        global.x_board |= localIdxToBB(idx);
-        global.o_board |= localIdxToBB(idx);
         break;
       default: break;
       }
@@ -247,7 +307,7 @@ public:
       bb empty = ~(locals[next].x_board | locals[next].o_board);
       empty &= ones(9);
       do {
-        moves.push_back(lookup(bsf, empty));
+        moves.push_back(localIdxToGlobalIdx_idx(lookup(bsf, empty), next));
       } while (clearLS1B(empty));
     }
     else {
@@ -257,7 +317,7 @@ public:
         int local_idx = lookup(bsf, open_locals);
         bb empty = ~(locals[local_idx].x_board | locals[local_idx].o_board);
         empty &= ones(9);
-        do {
+        if (empty) do {
           moves.push_back(localIdxToGlobalIdx_idx(lookup(bsf, empty), local_idx));
         } while (clearLS1B(empty));
       } while (clearLS1B(open_locals));
@@ -274,7 +334,7 @@ public:
       int num_moves = 0;
       if (open_locals) do {
         int local_idx = lookup(bsf, open_locals);
-        bb empty = ~(locals[next].x_board | locals[next].o_board) & ones(9);
+        bb empty = ~(locals[local_idx].x_board | locals[local_idx].o_board) & ones(9);
         num_moves += lookup(popcnt, empty);
       } while (clearLS1B(open_locals));
       return num_moves;
@@ -535,7 +595,7 @@ public:
     }
   };
 
-private:
+//private:
   array<Board, 9> locals;
   i8 next;
   bool x_turn;
@@ -610,20 +670,34 @@ public:
 
       // expansion phase
       Board b = node->board.getGlobal();
-      if (lookup2d(winState, b.x_board, b.o_board) == ongoing) {
+      if (lookup2d(winState, b.x_board, b.o_board) == ongoing && node->board.getNumMoves() > 0) {
         node = expand(node, visited, moves);
         moves.clear();
       }
 
-      // rollout phase
-      WinState outcome = rollout(node, moves);
+      for (int i = 0; i < NUM_ROLLOUTS; i++) {
+        // rollout phase
+        WinState outcome = rollout(node, moves);
 
-      // backprop phase
-      backprop(node, outcome, visited);
+        // backprop phase
+        backprop(node, outcome, visited);
+      }
 
       ++loop_count;
     }
     return loop_count;
+  }
+
+  int getBest() {
+    Node::Child* best = nullptr;
+    int most_visits = -1;
+    for (auto& child : root->children) {
+      if (child.visits > most_visits) {
+        best = &child;
+        most_visits = child.visits;
+      }
+    }
+    return best->move;
   }
 
 private:
@@ -656,7 +730,7 @@ private:
         best_score = score;
       }
     }
-    ++best->visits;
+    best->visits += NUM_ROLLOUTS;
     return best->child;
   }
 
@@ -683,17 +757,31 @@ private:
   WinState rollout(const Node* node, MoveVector& moves) {
     UltimateBoard board = node->board;
     Board glob = board.getGlobal();
-    while (!lookup2d(isTerminal, glob.x_board, glob.o_board)) {
+    while (!lookup2d(isTerminal, glob.x_board, glob.o_board) && board.getNumMoves() > 0) {
+      if (board.next != -1) {
+        EasyWin w = lookup2d(easyWin, board.locals[board.next].x_board, board.locals[board.next].o_board);
+        if (board.x_turn && w == easy_x) return x_won;
+        else if (!board.x_turn && w == easy_o) return o_won;
+      }
+      else {
+        for (int i = 0; i < 9; ++i) {
+          EasyWin w = lookup2d(easyWin, board.locals[i].x_board, board.locals[i].o_board);
+          if (board.x_turn && w == easy_x) return x_won;
+          else if (!board.x_turn && w == easy_o) return o_won;
+        }
+      }
       board.getMoves(moves);
       int next_move = moves[rng() % moves.size()];
       board.mark(globalIdxToLocalIdx_idx(next_move));
       glob = board.getGlobal();
       moves.clear();
     }
-    return lookup2d(winState, glob.x_board, glob.o_board);
+    WinState out = lookup2d(winState, glob.x_board, glob.o_board);
+    if (out == ongoing) return draw;  // the global may be ongoing but there still aren't any moves left
+    else return out;
   }
 
-  static void backprop(Node* node, WinState outcome, stack<Node*> visited) {
+  static void backprop(Node* node, WinState outcome, stack<Node*>& visited) {
     bool winner_node = false;
     bool winning_outcome = outcome == x_won || outcome == o_won;
     do {
@@ -707,10 +795,69 @@ private:
   }
 };
 
+void validateMovegen(UltimateBoard& board) {
+  bool is_valid = true;
+  vector<int> generated_moves;
+  board.getMoves(generated_moves);
+  int valid_action_count;
+  cin >> valid_action_count; cin.ignore();
+  if (valid_action_count != generated_moves.size()) {
+    cerr << "Incorrect number of moves!" << endl;
+    is_valid = false;
+  }
+  vector<int> given_moves;
+  int row, col;
+  for (int i = 0; i < valid_action_count; ++i) {
+    cin >> row >> col; cin.ignore();
+    given_moves.push_back(globalXyToIdx(col, row));
+    if (find(generated_moves.begin(), generated_moves.end(), globalXyToIdx(col, row)) == generated_moves.end()) {
+      cerr << "Failed to generate valid move: " << col << ' ' << row << endl;
+      is_valid = false;
+    }
+  }
+  for (int& it : generated_moves) {
+    if (find(given_moves.begin(), given_moves.end(), it) == given_moves.end()) {
+      cerr << "Generated invalid move: " << globalIdxToX(it) << ' ' << globalIdxToY(it) << endl;
+      is_valid = false;
+    }
+  }
+  if (!is_valid) {
+    cerr << "generated:\n";
+    for (auto& it : generated_moves) {
+      cerr << "  " << globalIdxToX(it) << ' ' << globalIdxToY(it) << '\n';
+    }
+    cerr << "valid:\n";
+    for (auto& it : given_moves) {
+      cerr << "  " << globalIdxToX(it) << ' ' << globalIdxToY(it) << '\n';
+    }
+    throw std::runtime_error("Invalid move generation");
+  }
+}
+
 int main() {
-  time_point start = steady_clock::now();
   UltimateBoard board;
+  int opponent_row = -1, opponent_col = -1;
+  cin >> opponent_row >> opponent_col; cin.ignore();
+  if (opponent_row != -1 && opponent_col != -1) {
+    board.mark(globalIdxToLocalIdx_idx(globalXyToIdx(opponent_col, opponent_row)));
+  }
+  validateMovegen(board);
+  time_point start = steady_clock::now();
   MonteCarlo mcts(board);
-  auto z = mcts.runSearch(start + milliseconds(750));
+  auto nsims = mcts.runSearch(start + milliseconds(950));
+  while (true) {
+    cerr << "Performed " << nsims << " expansions" << endl;
+    int best = mcts.getBest();
+    cout << globalIdxToY(best) << ' ' << globalIdxToX(best) << endl;
+    board.mark(globalIdxToLocalIdx_idx(best));
+    mcts.updateState(board);
+
+    cin >> opponent_row >> opponent_col; cin.ignore();
+    board.mark(globalIdxToLocalIdx_idx(globalXyToIdx(opponent_col, opponent_row)));
+    validateMovegen(board);
+    start = steady_clock::now();
+    mcts.updateState(board);
+    nsims = mcts.runSearch(start + milliseconds(75));
+  }
   return 0;
 }
