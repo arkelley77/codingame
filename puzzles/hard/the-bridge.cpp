@@ -50,6 +50,10 @@ void intakeState() {
   }
 }
 
+void updateState(State& state, Action action) {
+  // TODO: implement
+}
+
 struct Node {
   State state;
   int num_turns;
@@ -57,8 +61,9 @@ struct Node {
 
   Node() : state(global_state), num_turns(0), prev_node(nullptr) {}
   Node(Node* prev, Action action)
-    : state(prev->state), num_turns(prev->num_turns), prev_node(prev) {}
-
+    : state(prev->state), num_turns(prev->num_turns), prev_node(prev) {
+    updateState(state, action);
+  }
 };
 
 int main() {
