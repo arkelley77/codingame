@@ -1,0 +1,1 @@
+add_executable("csb-nn-train" "train.cpp" "sim.cpp" "nn.cpp" "genetic.cpp")

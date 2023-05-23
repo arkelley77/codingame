@@ -1,12 +1,9 @@
+#include <array>
 #include <iostream>
 #include <string>
 #include <vector>
 
 using namespace std;
-
-int num_bikes;
-int min_survival;
-vector<bool> safe[4];
 
 enum Action {
   SPEED = 0, SLOW = 1, JUMP = 2, WAIT = 3, UP = 4, DOWN = 5, action_count = 6
@@ -22,10 +19,14 @@ struct State {
   vector<Bike> bikes;
 };
 
+int num_bikes;
+int min_survival;
+array<vector<bool>, 4> safe;
 State global_state;
 
 void intakeGame() {
   cin >> num_bikes;
+  global_state.bikes.reserve(num_bikes);
   cin >> min_survival;
   for (int i = 0; i < 4; ++i) {
     char c;
@@ -40,7 +41,8 @@ void intakeGame() {
 }
 
 void intakeState() {
-  global_state.bikes.reserve(num_bikes);
+  global_state.bikes.clear();
+  //global_state.bikes.reserve(num_bikes);
   cin >> global_state.speed;
   for (int i = 0; i < num_bikes; ++i) {
     int x, y;
@@ -51,7 +53,39 @@ void intakeState() {
 }
 
 void updateState(State& state, Action action) {
-  // TODO: implement
+  switch (action) {
+    case SPEED: if (state.speed < 50) ++state.speed; break;
+    case SLOW:  if (state.speed > 0) --state.speed; break;
+    
+    case JUMP:  {
+      for (auto it = state.bikes.begin(); it != state.bikes.end();) {
+        it->x += state.speed;
+        if (!safe[it->y][it->x]) it = state.bikes.erase(it);
+        else ++it;
+      }
+      return;
+    }
+
+    case WAIT:  break;
+
+    case UP:    {
+      for (auto& bike : state.bikes) {
+        if (bike.y == 0) {
+          updateState(state, WAIT);
+          return;
+        }
+      }
+      for (auto it = state.bikes.begin(); it != state.bikes.end(); ++it) {
+        for (int x = it->x + 1; x < min(it->x + state.speed, (int)safe[0].size());) {
+          if (!safe[it->y][x] || !safe[it->y - 1][x]) {
+            it = state.bikes.erase(it);
+            x = it->x + 1;
+          }
+          else ++x;
+        }
+      }
+    }
+  }
 }
 
 struct Node {
